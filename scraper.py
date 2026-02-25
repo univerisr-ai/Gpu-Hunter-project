@@ -3,9 +3,13 @@ import sys
 import json
 import time
 import requests
+import urllib3
 from bs4 import BeautifulSoup
 from datetime import datetime
 from zoneinfo import ZoneInfo
+
+# Proxy kullanırken çıkan gereksiz SSL uyarılarını gizle
+urllib3.disable_warnings(urllib3.exceptions.InsecureRequestWarning)
 
 # --- AYARLAR ---
 API_KEY = os.environ.get("SCRAPERAPI_KEY")
@@ -18,50 +22,65 @@ BANNED_WORDS = [
     "kutu satışı", "mining", "rig sökümü", "görüntü vermiyor"
 ]
 
-def get_html():
+def get_html_via_proxy():
+    """ScraperAPI'yi REST API olarak değil, doğrudan Proxy (Tünel) olarak kullanır."""
     if not API_KEY:
         print("HATA: SCRAPERAPI_KEY bulunamadı!")
         sys.exit(1)
 
-    base_api_url = "https://api.scraperapi.com/"
+    # TR lokasyonlu ve Premium (Ev İnterneti) Proxy Ayarı
+    proxy_url = f"http://scraperapi.country_code=tr.premium=true:{API_KEY}@proxy-server.scraperapi.com:8001"
     
-    # TR kısıtlaması kaldırıldı, render ve keep_headers eklendi (Hayalet Modu)
-    params = {
-        "api_key": API_KEY,
-        "url": TARGET_URL,
-        "premium": "true",
-        "render": "true",
-        "keep_headers": "true"
+    proxies = {
+        "http": proxy_url,
+        "https": proxy_url
     }
 
-    # Gerçek insan kimliği
+    # Sahibinden'i kandırmak için Mükemmel Başlıklar (Headers)
     headers = {
         "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/122.0.0.0 Safari/537.36",
-        "Accept": "text/html,application/xhtml+xml,application/xml;q=0.9,image/avif,image/webp,*/*;q=0.8",
-        "Accept-Language": "tr-TR,tr;q=0.9,en-US;q=0.8,en;q=0.7"
+        "Accept": "text/html,application/xhtml+xml,application/xml;q=0.9,image/avif,image/webp,image/apng,*/*;q=0.8",
+        "Accept-Language": "tr-TR,tr;q=0.9,en-US;q=0.8,en;q=0.7",
+        "Referer": "https://www.google.com.tr/", # Sanki Google'dan gelmişiz gibi!
+        "Upgrade-Insecure-Requests": "1",
+        "Sec-Fetch-Dest": "document",
+        "Sec-Fetch-Mode": "navigate",
+        "Sec-Fetch-Site": "cross-site",
+        "Sec-Fetch-User": "?1"
     }
 
     max_retries = 3 
     
     for attempt in range(1, max_retries + 1):
         try:
-            print(f"Deneme {attempt}/{max_retries} - Hayalet modunda istek atılıyor...")
-            response = requests.get(base_api_url, params=params, headers=headers, timeout=90)
+            print(f"Deneme {attempt}/{max_retries} - Truva Atı Modu (Tünel) ile giriliyor...")
             
+            # verify=False ekledik çünkü aracı proxy sunucuları bazen SSL hatası verdirir
+            response = requests.get(
+                TARGET_URL, 
+                proxies=proxies, 
+                headers=headers, 
+                timeout=60, 
+                verify=False
+            )
+            
+            # Eğer 200 dönerse ve içinde Sahibinden'e ait bir HTML etiketi varsa
             if response.status_code == 200 and "searchResultsItem" in response.text:
-                print("BAŞARILI! Duvar aşıldı ve veriler çekildi.")
+                print("BAŞARILI! Duvar yıkıldı, HTML verisi elimizde.")
                 return response.text
                 
-            print(f"Uyarı: Duvar aşılamadı. HTTP Durumu: {response.status_code}. Sayfa Boyutu: {len(response.text)} byte")
+            print(f"Uyarı: Güvenliğe takıldı. HTTP: {response.status_code}.")
+            # Hatanın gerçekte ne olduğunu (208 byte meselesi) görmek için ilk 250 karakteri yazdır
+            print(f"Sahibinden'in veya Proxy'nin Cevabı: {response.text[:250]}")
             
         except Exception as e:
-            print(f"Hata: İletişim koptu ({e})")
+            print(f"Bağlantı koptu veya zaman aşımı: {e}")
             
         if attempt < max_retries:
-            print("10 saniye dinlenip yepyeni bir kimlikle tekrar denenecek...\n")
-            time.sleep(10)
+            print("8 saniye bekleniyor, IP değiştirilip tekrar denenecek...\n")
+            time.sleep(8)
 
-    print("KRİTİK HATA: Sahibinden koruması bu seferlik aşılamadı.")
+    print("KRİTİK HATA: Proxy havuzundaki IP'ler de engellendi.")
     return None
 
 def is_clean_title(title):
@@ -129,7 +148,7 @@ def parse_html(html_content):
 
 def update_json(new_items):
     if len(new_items) == 0:
-        print("KRİTİK: İlan bulunamadı! Mevcut veri korunuyor.")
+        print("KRİTİK: İlan bulunamadı! Sayfa yapısı değişmiş veya Captcha gelmiş olabilir.")
         sys.exit(1)
 
     existing_items = []
@@ -151,10 +170,10 @@ def update_json(new_items):
     with open(JSON_FILE, "w", encoding="utf-8") as f:
         json.dump(final_items, f, ensure_ascii=False, indent=4)
         
-    print(f"BÜYÜK BAŞARI: Toplam {len(new_items)} yeni ilan yakalandı ve siteye gönderildi!")
+    print(f"BÜYÜK BAŞARI: Toplam {len(new_items)} yeni ilan yakalandı ve JSON'a yazıldı!")
 
 if __name__ == "__main__":
-    html = get_html()
+    html = get_html_via_proxy()
     if html:
         scraped_items = parse_html(html)
         update_json(scraped_items)
