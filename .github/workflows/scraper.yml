@@ -1,0 +1,56 @@
+name: Sahibinden Ekran Kartı Scraper
+
+on:
+  schedule:
+    # Her gün UTC saati ile 07:00'da (TSİ 10:00) otomatik çalıştırır.
+    - cron: '0 7 * * *'
+  # GitHub arayüzünden manuel olarak tetikleme imkanı sunar.
+  workflow_dispatch:
+
+# KRİTİK YETKİ: Botun repoya veri (ilanlar.json) pushlayabilmesi için zorunludur. (403 hatasını engeller)
+permissions:
+  contents: write
+
+jobs:
+  scrape-and-update:
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Repoyu Klonla (Checkout)
+        uses: actions/checkout@v4
+
+      - name: Python 3.11 Kur
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+
+      - name: Bağımlılıkları Yükle
+        run: |
+          python -m pip install --upgrade pip
+          pip install -r requirements.txt
+
+      - name: Scraper Scriptini Çalıştır
+        env:
+          SCRAPERAPI_KEY: ${{ secrets.SCRAPERAPI_KEY }}
+        run: python scraper.py
+
+      - name: Git Push Kontrolü ve Yükleme
+        run: |
+          # Bot için Git kimlik tanımlaması
+          git config user.name "github-actions[bot]"
+          git config user.email "github-actions[bot]@users.noreply.github.com"
+          
+          # Dosyayı ekle
+          git add ilanlar.json
+          
+          # Değişiklik olup olmadığını kontrol et
+          git diff --staged --quiet || DEGISIKLIK_VAR="true"
+          
+          # Değişiklik varsa commit at ve pushla, yoksa iptal et.
+          if [ "$DEGISIKLIK_VAR" = "true" ]; then
+            git commit -m "Veri Güncellemesi"
+            git push
+            echo "Yeni ilan verileri başarıyla GitHub'a yüklendi."
+          else
+            echo "Değişiklik yok, herhangi bir commit atılmadı."
+          fi
