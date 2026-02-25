@@ -9,7 +9,7 @@ from zoneinfo import ZoneInfo
 
 # --- AYARLAR ---
 API_KEY = os.environ.get("SCRAPERAPI_KEY")
-TARGET_URL = "https://www.sahibinden.com/ekran-karti?sorting=date_desc" # Linki sadeleştirdik
+TARGET_URL = "https://www.sahibinden.com/ekran-karti?sorting=date_desc"
 JSON_FILE = "ilanlar.json"
 
 BANNED_WORDS = [
@@ -19,45 +19,49 @@ BANNED_WORDS = [
 ]
 
 def get_html():
-    """ScraperAPI ile İnatçı (Retry) İstek Atar"""
     if not API_KEY:
         print("HATA: SCRAPERAPI_KEY bulunamadı!")
         sys.exit(1)
 
     base_api_url = "https://api.scraperapi.com/"
     
-    # render=true kaldırdık, çünkü 500 hatasına o sebep oluyor. premium yeterli.
+    # TR kısıtlaması kaldırıldı, render ve keep_headers eklendi (Hayalet Modu)
     params = {
         "api_key": API_KEY,
         "url": TARGET_URL,
         "premium": "true",
-        "country_code": "tr",
-        "device_type": "desktop"
+        "render": "true",
+        "keep_headers": "true"
     }
 
-    max_retries = 3 # 3 Kere deneyecek
+    # Gerçek insan kimliği
+    headers = {
+        "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/122.0.0.0 Safari/537.36",
+        "Accept": "text/html,application/xhtml+xml,application/xml;q=0.9,image/avif,image/webp,*/*;q=0.8",
+        "Accept-Language": "tr-TR,tr;q=0.9,en-US;q=0.8,en;q=0.7"
+    }
+
+    max_retries = 3 
     
     for attempt in range(1, max_retries + 1):
         try:
-            print(f"Deneme {attempt}/{max_retries} - İstek atılıyor...")
-            response = requests.get(base_api_url, params=params, timeout=60)
+            print(f"Deneme {attempt}/{max_retries} - Hayalet modunda istek atılıyor...")
+            response = requests.get(base_api_url, params=params, headers=headers, timeout=90)
             
-            # Eğer 200 (Başarılı) dönerse ve içinde ilan varsa HTML'i ver ve çık
             if response.status_code == 200 and "searchResultsItem" in response.text:
-                print("Başarılı! Veri çekildi.")
+                print("BAŞARILI! Duvar aşıldı ve veriler çekildi.")
                 return response.text
                 
-            print(f"Uyarı: İstenen sayfa tam gelmedi. HTTP Durumu: {response.status_code}. Captcha olabilir.")
+            print(f"Uyarı: Duvar aşılamadı. HTTP Durumu: {response.status_code}. Sayfa Boyutu: {len(response.text)} byte")
             
         except Exception as e:
-            print(f"Hata: {e}")
+            print(f"Hata: İletişim koptu ({e})")
             
-        # Eğer buraya geldiyse başarısız olmuştur, diğer deneme için 5 saniye bekle
         if attempt < max_retries:
-            print("5 saniye beklenip farklı bir Proxy (IP) ile tekrar denenecek...\n")
-            time.sleep(5)
+            print("10 saniye dinlenip yepyeni bir kimlikle tekrar denenecek...\n")
+            time.sleep(10)
 
-    print("KRİTİK HATA: Tüm denemeler başarısız oldu. Sahibinden çok sıkı koruma uyguluyor.")
+    print("KRİTİK HATA: Sahibinden koruması bu seferlik aşılamadı.")
     return None
 
 def is_clean_title(title):
@@ -147,7 +151,7 @@ def update_json(new_items):
     with open(JSON_FILE, "w", encoding="utf-8") as f:
         json.dump(final_items, f, ensure_ascii=False, indent=4)
         
-    print(f"Başarı: Toplam {len(new_items)} yeni ilan yakalandı/güncellendi. Dosyaya yazıldı.")
+    print(f"BÜYÜK BAŞARI: Toplam {len(new_items)} yeni ilan yakalandı ve siteye gönderildi!")
 
 if __name__ == "__main__":
     html = get_html()
